@@ -79,7 +79,7 @@ entity top_basys3 is
         btnU    :   in std_logic; -- master_reset
         btnL    :   in std_logic; -- clk_reset
         btnR    :   in std_logic; -- fsm_reset
-        
+        btnC : in std_logic; --tdm_reset
         -- outputs
         led :   out std_logic_vector(15 downto 0);
         -- 7-segment display segments (active-low cathodes)
@@ -102,23 +102,23 @@ component elevator_controller_fsm is
            i_reset   : in  STD_LOGIC;
            i_stop    : in  STD_LOGIC;
            i_up_down : in  STD_LOGIC;
-           o_floor   : out STD_LOGIC_VECTOR (3 downto 0)		   
+           o_floor   : out STD_LOGIC_VECTOR (7 downto 0)		   
 		 );
     
   end component elevator_controller_fsm;
   -- TDM COMPONENT
---component TDM4 is
---      generic ( constant k_WIDTH : natural  := 4); -- bits in input and output
---      Port ( i_clk        : in  STD_LOGIC;
---             i_reset        : in  STD_LOGIC; -- asynchronous
---             i_D3         : in  STD_LOGIC_VECTOR (k_WIDTH - 1 downto 0);
---             i_D2         : in  STD_LOGIC_VECTOR (k_WIDTH - 1 downto 0);
---             i_D1         : in  STD_LOGIC_VECTOR (k_WIDTH - 1 downto 0);
---             i_D0         : in  STD_LOGIC_VECTOR (k_WIDTH - 1 downto 0);
---             o_data        : out STD_LOGIC_VECTOR (k_WIDTH - 1 downto 0);
---             o_sel        : out STD_LOGIC_VECTOR (3 downto 0)
---             );
---      end component TDM4;
+component TDM4 is
+      generic ( constant k_WIDTH : natural  := 4); -- bits in input and output
+      Port ( i_clk        : in  STD_LOGIC;
+             i_reset        : in  STD_LOGIC; -- asynchronous
+             i_D3         : in  STD_LOGIC_VECTOR (k_WIDTH - 1 downto 0);
+             i_D2         : in  STD_LOGIC_VECTOR (k_WIDTH - 1 downto 0);
+             i_D1         : in  STD_LOGIC_VECTOR (k_WIDTH - 1 downto 0);
+             i_D0         : in  STD_LOGIC_VECTOR (k_WIDTH - 1 downto 0);
+             o_data        : out STD_LOGIC_VECTOR (k_WIDTH - 1 downto 0);
+             o_sel        : out STD_LOGIC_VECTOR (3 downto 0)
+             );
+      end component TDM4;
   -- CLOCK COMPONENT
 component clock_divider is  
     generic ( constant k_DIV : natural := 2    ); -- How many clk cycles until slow clock toggles
@@ -132,8 +132,10 @@ component clock_divider is
   --SIGNALS
   signal w_7SD_EN_n : std_logic;
   signal w_clk : std_logic;
-  signal w_floor : STD_LOGIC_VECTOR(3 downto 0);
-  
+  signal w_clk2 : std_logic;
+  signal w_floor : STD_LOGIC_VECTOR(7 downto 0);
+  signal w_data : STD_LOGIC_VECTOR(3 downto 0);
+  signal w_sel : STD_LOGIC_VECTOR(3 downto 0);
 begin
 	-- PORT MAPS ----------------------------------------
 elevator_controller_fsm_inst : elevator_controller_fsm
@@ -144,9 +146,19 @@ elevator_controller_fsm_inst : elevator_controller_fsm
         i_up_down => sw(1),
         o_floor => w_floor
     );
+TDM4_inst : TDM4
+    port map ( i_clk => w_clk2,
+             i_reset => btnC,  
+             i_D3 => w_floor(7 downto 4),
+             i_D2 => w_floor(3 downto 0),    
+             i_D1 => w_floor(3 downto 0),        
+             i_D0 => w_floor(7 downto 4),
+             o_data => w_data,
+             o_sel => w_sel
+             );
 sevenSegDecoder_inst : sevenSegDecoder
     port map (
-    i_D => w_floor,
+    i_D => w_data,
     o_S => seg
     );
 clkdiv_inst : clock_divider
@@ -156,7 +168,13 @@ clkdiv_inst : clock_divider
             i_reset => btnL or btnU,
             o_clk => w_clk
             );    
-	
+clkdiv_inst2 : clock_divider
+        generic map (k_DIV => 100000)
+        port map (
+        i_clk => clk,
+        i_reset => btnC,
+        o_clk => w_clk2
+        );
 	-- CONCURRENT STATEMENTS ----------------------------
 	
 	-- LED 15 gets the FSM slow clock signal. The rest are grounded.
@@ -166,8 +184,10 @@ clkdiv_inst : clock_divider
 	-- leave unused switches UNCONNECTED. Ignore any warnings this causes.
 	
 	-- wire up active-low 7SD anodes (an) as required
-	w_7SD_EN_n <= '0';
+	w_7SD_EN_n <= '1';
 	-- Tie any unused anodes to power ('1') to keep them off
-	an  <= (2 => w_7SD_EN_n, others => '1');
-	
+	an(3) <= '0' when w_sel="0111" or w_sel="1110" else '1';
+    an(2) <= '0' when w_sel="1011" or w_sel="1101" else '1';
+	an(1) <= w_7SD_EN_n;
+	an(0) <= w_7SD_EN_n;
 end top_basys3_arch;
